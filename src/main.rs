@@ -1,6 +1,6 @@
 mod config;
 
-use crate::config::Config;
+use crate::config::{CompressionType, Config};
 use clap::Parser;
 use log::debug;
 use rdkafka::consumer::Consumer;
@@ -17,12 +17,18 @@ struct Args {
     topic: String,
     #[arg(short, long, help = "HTTP port", value_parser = port_in_range, default_value_t = 7778)]
     port: u16,
+    #[arg(long, help = "Generate compressible payload")]
+    compressible_payload: bool,
+    #[arg(long, help = "Compression Type", value_enum)]
+    compression_type: Option<CompressionType>,
     #[arg(long, help = "Produce throughput in bps")]
     produce_throughput_bps: Option<usize>,
     #[arg(long, help = "Consume throughput in MBps")]
     consume_throughput_mbps: Option<usize>,
     #[arg(long, help = "Number of consumers", default_value_t = 1)]
     num_consumers: usize,
+    #[arg(long, help = "Random consumption rather than sequential")]
+    rand: bool,
     #[arg(long, help = "Username")]
     username: Option<String>,
     #[arg(long, help = "Password")]
@@ -60,6 +66,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(Config::new(
         args.brokers,
         args.topic,
+        args.compressible_payload,
+        args.compression_type,
+        args.produce_throughput_bps,
+        args.consume_throughput_mbps,
+        args.num_consumers,
+        args.rand,
         args.username,
         args.password,
         args.sasl_mechanism,

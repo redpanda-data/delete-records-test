@@ -14,6 +14,9 @@ categories = ["command-line-utilities", "asynchronous"]
 [dependencies]
 clap = {version = "4.3", features = ["default", "derive"] }
 env_logger = "0.10.0"
+governor = "0.5.1"
 log = "0.4"
+# Upstream rd-kafka has not merged in kip-107 support (though the PR has existed since January 2023)
+# This branch takes the 0.32 and merges in that PR
 rdkafka = {git = "https://www.github.com/michael-redpanda/rust-rdkafka", branch = "kip-107-support"}
 tokio = {version="1.28", features = ["full"]}

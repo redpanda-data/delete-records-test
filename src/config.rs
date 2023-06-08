@@ -1,11 +1,40 @@
+use clap::ValueEnum;
 use log::info;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::error::KafkaResult;
 use rdkafka::ClientConfig;
+use std::fmt;
+
+#[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord, ValueEnum)]
+pub enum CompressionType {
+    None,
+    Gzip,
+    Lz4,
+    Snappy,
+    Zstd,
+}
+
+impl fmt::Display for CompressionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CompressionType::None => write!(f, "none"),
+            CompressionType::Gzip => write!(f, "gzip"),
+            CompressionType::Lz4 => write!(f, "lz4"),
+            CompressionType::Snappy => write!(f, "snappy"),
+            CompressionType::Zstd => write!(f, "zstd"),
+        }
+    }
+}
 
 pub struct Config {
     pub brokers: String,
     pub topic: String,
+    pub compressible_payload: bool,
+    pub compression_type: CompressionType,
+    pub produce_throughput_bps: Option<usize>,
+    pub consume_throughput_mbps: Option<usize>,
+    pub num_consumers: usize,
+    pub rand: bool,
     pub username: Option<String>,
     pub password: Option<String>,
     pub sasl_mechanism: Option<String>,
@@ -17,6 +46,12 @@ impl Config {
     pub fn new(
         brokers: String,
         topic: String,
+        compressible_payload: bool,
+        compression_type: Option<CompressionType>,
+        produce_throughput_bps: Option<usize>,
+        consume_throughput_mbps: Option<usize>,
+        num_consumers: usize,
+        rand: bool,
         username: Option<String>,
         password: Option<String>,
         sasl_mechanism: Option<String>,
@@ -50,9 +85,23 @@ impl Config {
             rdkafka_config.set("sasl.mechanism", mechanism);
         }
 
+        let compression_type = compression_type.unwrap_or_else(|| {
+            if compressible_payload {
+                CompressionType::Snappy
+            } else {
+                CompressionType::None
+            }
+        });
+
         Ok(Self {
             brokers,
             topic,
+            compressible_payload,
+            compression_type,
+            produce_throughput_bps,
+            consume_throughput_mbps,
+            num_consumers,
+            rand,
             username,
             password,
             sasl_mechanism,

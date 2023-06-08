@@ -28,6 +28,8 @@ The following table defines the CLI arguments for the application:
 | `-b/--broker <BROKERS>`            | The brokers to use                                  |
 | `-t/--topic <TOPIC_NAME>`          | The name of the _existing_ topic to use             |
 | `-p/--port <HTTP PORT>`            | Port to use for API                                 |
+| `--compressible-payload`           | Generate compressible payload                       |
+| `--compression-type <TYPE>`        | Compression type                                    |
 | `--produce-throughput-bps <BPS>`   | Throughput for production                           |
 | `--consume-throughput-mbps <MBPS>` | Throughput for consumer (for each consumer)         |
 | `--num-consumers <NUM>`            | Number of consumers                                 |
