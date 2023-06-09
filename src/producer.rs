@@ -1,4 +1,6 @@
 use crate::config::Config;
+use crate::stats::ErrorReport::ProducerError;
+use crate::stats::StatsHandle;
 use governor::{Quota, RateLimiter};
 use log::{debug, error, info, warn};
 use once_cell::sync::OnceCell;
@@ -27,6 +29,7 @@ pub async fn producers(
     num_producers: usize,
     timeout: Duration,
     cancel_token: CancellationToken,
+    stats_handle: StatsHandle,
 ) {
     let mut tasks = vec![];
     let start_time = Instant::now();
@@ -38,6 +41,7 @@ pub async fn producers(
             i,
             timeout,
             cancel_token.clone(),
+            stats_handle.clone(),
         )))
     }
 
@@ -85,6 +89,7 @@ async fn produce(
     my_id: usize,
     timeout: Duration,
     cancel_token: CancellationToken,
+    stats_handle: StatsHandle,
 ) -> KafkaResult<ProducerStats> {
     debug!("Producer {} constructing", my_id);
     let producer = config.make_future_producer()?;
@@ -152,7 +157,9 @@ async fn produce(
                     Err((e, _)) => {
                         warn!("Error on producer {}, producing {} bytes, compressible={} : {}",
                         my_id, sz, payload.compressible, e);
-                        errors.push(format!("{}", e))
+                        let err_str = format!("{}", e);
+                        stats_handle.report_issue(format!("{}", my_id), ProducerError(err_str.clone()));
+                        errors.push(err_str);
                     }
                 }
             }

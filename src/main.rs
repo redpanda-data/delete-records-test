@@ -57,7 +57,7 @@ struct Args {
     producer_properties: Vec<String>,
     #[arg(long, help = "Produce throughput in bps")]
     produce_throughput_bps: Option<u32>,
-    #[arg(long, help = "Proudce timeout in milliseconds", default_value_t = 1000)]
+    #[arg(long, help = "Produce timeout in milliseconds", default_value_t = 1000)]
     timeout_ms: u64,
     #[arg(long, help = "Number of producers", default_value_t = 1)]
     num_producers: usize,
@@ -179,6 +179,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.num_producers,
         Duration::from_millis(args.timeout_ms),
         cancel_token.clone(),
+        stats_handle.clone(),
     )));
 
     info!("Starting webserver");
