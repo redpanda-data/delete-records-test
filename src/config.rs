@@ -2,6 +2,7 @@ use clap::ValueEnum;
 use log::info;
 use rdkafka::client::DefaultClientContext;
 use rdkafka::error::KafkaResult;
+use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
 use std::fmt;
 
@@ -36,7 +37,7 @@ pub enum DeleteOffsetPosition {
     Single,
 }
 
-pub struct Config {
+pub struct BaseConfig {
     pub brokers: String,
     pub topic: String,
     pub username: Option<String>,
@@ -46,7 +47,34 @@ pub struct Config {
     rdkafka_config: ClientConfig,
 }
 
-impl Config {
+#[derive(Clone)]
+pub struct Payload {
+    pub key_range: u64,
+    pub compressible: bool,
+    pub min_size: usize,
+    pub max_size: usize,
+}
+
+pub struct ProducerConfig {
+    pub payload: Payload,
+    pub producer_throughput_bps: Option<u32>,
+    compression_type: Option<CompressionType>,
+    producer_properties: Vec<String>,
+}
+
+pub struct ConsumerConfig {
+    consumer_properties: Vec<String>,
+    pub consumer_throughput_mbps: Option<usize>,
+    pub rand: bool,
+}
+
+pub struct ConfigBuilder {
+    base_config: Option<BaseConfig>,
+    producer_config: Option<ProducerConfig>,
+    consumer_config: Option<ConsumerConfig>,
+}
+
+impl ConfigBuilder {
     pub fn new(
         brokers: String,
         topic: String,
@@ -83,7 +111,7 @@ impl Config {
             rdkafka_config.set("sasl.mechanism", mechanism);
         }
 
-        Ok(Self {
+        let base_config = BaseConfig {
             brokers,
             topic,
             username,
@@ -91,14 +119,88 @@ impl Config {
             sasl_mechanism,
             enable_tls,
             rdkafka_config,
+        };
+
+        Ok(Self {
+            base_config: Some(base_config),
+            producer_config: None,
+            consumer_config: None,
         })
     }
 
+    pub fn set_producer_config(
+        mut self,
+        payload: Payload,
+        compression_type: Option<CompressionType>,
+        producer_properties: Vec<String>,
+        producer_throughput_bps: Option<u32>,
+    ) -> Self {
+        self.producer_config = Some(ProducerConfig {
+            payload,
+            producer_throughput_bps,
+            compression_type,
+            producer_properties,
+        });
+        self
+    }
+
+    pub fn set_consumer_config(
+        mut self,
+        consumer_properties: Vec<String>,
+        consumer_throughput_mbps: Option<usize>,
+        rand: bool,
+    ) -> Self {
+        self.consumer_config = Some(ConsumerConfig {
+            consumer_properties,
+            consumer_throughput_mbps,
+            rand,
+        });
+        self
+    }
+
+    pub fn build(self) -> Config {
+        Config {
+            base_config: self.base_config.expect("Base config not provided"),
+            producer_config: self.producer_config.expect("Producer config not provided"),
+            consumer_config: self.consumer_config.expect("Consumer config not provided"),
+        }
+    }
+}
+
+pub struct Config {
+    pub base_config: BaseConfig,
+    pub producer_config: ProducerConfig,
+    pub consumer_config: ConsumerConfig,
+}
+
+impl Config {
     pub fn make_admin(&self) -> KafkaResult<rdkafka::admin::AdminClient<DefaultClientContext>> {
-        self.rdkafka_config.create()
+        self.base_config.rdkafka_config.create()
     }
 
     pub fn make_base_consumer(&self) -> KafkaResult<rdkafka::consumer::BaseConsumer> {
-        self.rdkafka_config.create()
+        self.base_config.rdkafka_config.create()
+    }
+
+    fn split_properties(properties: &[String]) -> Vec<(String, String)> {
+        properties
+            .iter()
+            .map(|p| p.split('=').collect::<Vec<&str>>())
+            .map(|parts| (parts[0].to_string(), parts[1].to_string()))
+            .collect()
+    }
+
+    pub fn make_future_producer(&self) -> KafkaResult<FutureProducer> {
+        let mut cfg = self.base_config.rdkafka_config.clone();
+        cfg.set("message.max.bytes", "1000000000");
+        let kv_pairs = Self::split_properties(&self.producer_config.producer_properties);
+        for (k, v) in kv_pairs {
+            cfg.set(k, v);
+        }
+        if let Some(compression_type) = self.producer_config.compression_type {
+            cfg.set("compression.type", format!("{}", compression_type));
+        }
+
+        cfg.create()
     }
 }
