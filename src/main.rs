@@ -1,13 +1,17 @@
+extern crate core;
+
 mod config;
 mod producer;
+mod stats;
 
 use crate::config::{CompressionType, Config, ConfigBuilder, DeleteOffsetPosition, Payload};
 use crate::producer::producers;
+use crate::stats::{monitor_water_marks, Stats, StatsHandle};
 use clap::Parser;
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use rdkafka::consumer::Consumer;
 use std::ops::RangeInclusive;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{num, process};
 use tokio::{select, signal};
@@ -151,9 +155,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     validate_topic_exists(config.as_ref())?;
 
+    trace!("Creating stats instance");
+    let stats = Arc::new(Mutex::new(Stats::new(config.clone())?));
+
+    let stats_handle = StatsHandle::new(stats);
+
     let cancel_token = CancellationToken::new();
 
     let mut tasks = vec![];
+
+    info!("Starting monitor water marks");
+    tasks.push(tokio::spawn(monitor_water_marks(
+        stats_handle.clone(),
+        cancel_token.clone(),
+        Duration::from_millis(1000),
+    )));
 
     info!("Starting producers");
     tasks.push(tokio::spawn(producers(
