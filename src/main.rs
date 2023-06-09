@@ -1,9 +1,10 @@
 mod config;
 
-use crate::config::{CompressionType, Config};
+use crate::config::{CompressionType, Config, DeleteOffsetPosition};
 use clap::Parser;
 use log::debug;
 use rdkafka::consumer::Consumer;
+use std::num;
 use std::ops::RangeInclusive;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,10 +22,18 @@ struct Args {
     compressible_payload: bool,
     #[arg(long, help = "Compression Type", value_enum)]
     compression_type: Option<CompressionType>,
+    #[arg(long, help = "Position to delete offset", value_enum)]
+    delete_offset_position: DeleteOffsetPosition,
+    #[arg(long, help = "Frequency of running delete offset in seconds", value_parser = parse_duration)]
+    delete_offset_period_sec: Duration,
     #[arg(long, help = "Produce throughput in bps")]
     produce_throughput_bps: Option<usize>,
     #[arg(long, help = "Consume throughput in MBps")]
     consume_throughput_mbps: Option<usize>,
+    #[arg(long, help = "Producer properties (as key=value for librdkafka)")]
+    producer_properties: Vec<String>,
+    #[arg(long, help = "Consumer properties (as key=value for librdkafka)")]
+    consumer_properties: Vec<String>,
     #[arg(long, help = "Number of consumers", default_value_t = 1)]
     num_consumers: usize,
     #[arg(long, help = "Random consumption rather than sequential")]
@@ -40,6 +49,11 @@ struct Args {
 }
 
 const PORT_RANGE: RangeInclusive<usize> = 1..=65535;
+
+fn parse_duration(s: &str) -> Result<Duration, num::ParseIntError> {
+    let seconds = s.parse()?;
+    Ok(Duration::from_secs(seconds))
+}
 
 fn port_in_range(s: &str) -> Result<u16, String> {
     let port: usize = s
@@ -57,6 +71,19 @@ fn port_in_range(s: &str) -> Result<u16, String> {
     }
 }
 
+fn validate_topic_exists(config: &Config) -> Result<(), String> {
+    debug!("Fetching metadata for topic {}", config.topic);
+    let base_consumer = config.make_base_consumer().map_err(|e| format!("{}", e))?;
+    let metadata = base_consumer
+        .fetch_metadata(Some(config.topic.as_str()), Duration::from_millis(1000))
+        .map_err(|e| format!("{}", e))?;
+    if metadata.topics().is_empty() || metadata.topics()[0].partitions().is_empty() {
+        Err(format!("Topic '{}' does not exist", config.topic))
+    } else {
+        Ok(())
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
@@ -66,33 +93,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = Arc::new(Config::new(
         args.brokers,
         args.topic,
-        args.compressible_payload,
-        args.compression_type,
-        args.produce_throughput_bps,
-        args.consume_throughput_mbps,
-        args.num_consumers,
-        args.rand,
         args.username,
         args.password,
         args.sasl_mechanism,
         args.enable_tls,
     )?);
 
-    let base_consumer = config.make_base_consumer()?;
-
-    debug!("Fetching metadata for topic {}", config.topic);
-    let metadata =
-        base_consumer.fetch_metadata(Some(config.topic.as_str()), Duration::from_millis(1000))?;
-
-    if metadata.topics()[0].partitions().is_empty() {
-        panic!("Topic `{}` does not exist", config.topic);
-    }
-
-    debug!(
-        "Topic `{}` contains {} partitions",
-        config.topic,
-        metadata.topics()[0].partitions().len()
-    );
+    validate_topic_exists(config.as_ref())?;
 
     Ok(())
 }

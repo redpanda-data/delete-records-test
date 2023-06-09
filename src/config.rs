@@ -26,15 +26,19 @@ impl fmt::Display for CompressionType {
     }
 }
 
+#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, ValueEnum)]
+pub enum DeleteOffsetPosition {
+    /// Delete all offsets
+    All,
+    /// Delete halfway between HWM and LWM
+    Halfway,
+    /// Delete one after LWM (single offset deletion)
+    Single,
+}
+
 pub struct Config {
     pub brokers: String,
     pub topic: String,
-    pub compressible_payload: bool,
-    pub compression_type: CompressionType,
-    pub produce_throughput_bps: Option<usize>,
-    pub consume_throughput_mbps: Option<usize>,
-    pub num_consumers: usize,
-    pub rand: bool,
     pub username: Option<String>,
     pub password: Option<String>,
     pub sasl_mechanism: Option<String>,
@@ -46,12 +50,6 @@ impl Config {
     pub fn new(
         brokers: String,
         topic: String,
-        compressible_payload: bool,
-        compression_type: Option<CompressionType>,
-        produce_throughput_bps: Option<usize>,
-        consume_throughput_mbps: Option<usize>,
-        num_consumers: usize,
-        rand: bool,
         username: Option<String>,
         password: Option<String>,
         sasl_mechanism: Option<String>,
@@ -85,23 +83,9 @@ impl Config {
             rdkafka_config.set("sasl.mechanism", mechanism);
         }
 
-        let compression_type = compression_type.unwrap_or_else(|| {
-            if compressible_payload {
-                CompressionType::Snappy
-            } else {
-                CompressionType::None
-            }
-        });
-
         Ok(Self {
             brokers,
             topic,
-            compressible_payload,
-            compression_type,
-            produce_throughput_bps,
-            consume_throughput_mbps,
-            num_consumers,
-            rand,
             username,
             password,
             sasl_mechanism,
