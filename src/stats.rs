@@ -1,22 +1,26 @@
 use crate::config::Config;
+use chrono::{DateTime, Utc};
 use log::{info, trace};
 use rdkafka::consumer::Consumer;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
 
 pub type PartitionId = i32;
 
+#[derive(Clone, Serialize, Deserialize)]
 pub struct TPInfo {
     partition: PartitionId,
     lwm: i64,
     hwm: i64,
 }
 
+#[derive(Serialize, Deserialize, Clone)]
 pub enum ErrorReport {
     ProducerError(String),
     ConsumerError(String),
@@ -31,9 +35,10 @@ impl fmt::Display for ErrorReport {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize)]
 struct ErrorEvent {
     report: ErrorReport,
-    time: Instant,
+    time: SystemTime,
 }
 
 pub type ReporterKey = String;
@@ -56,6 +61,10 @@ impl StatsHandle {
         }
     }
 
+    pub fn get_status(&self) -> StatsStatus {
+        self.inner.lock().unwrap().get_status()
+    }
+
     pub fn update_tp_info(&self) -> Result<(), String> {
         self.inner.lock().unwrap().update_tp_info()
     }
@@ -65,10 +74,17 @@ impl StatsHandle {
     }
 }
 
+#[derive(Serialize, Deserialize)]
+pub struct StatsStatus {
+    updated_at: String,
+    tp_info: TPInfoMap,
+    errors: ErrorMap,
+}
+
 pub struct Stats {
     config: Arc<Config>,
     start_time: Instant,
-    tp_info: Mutex<TPInfoMap>,
+    tp_info: TPInfoMap,
     errors: ErrorMap,
 }
 
@@ -78,15 +94,13 @@ impl Stats {
         Ok(Self {
             config,
             start_time: Instant::now(),
-            tp_info: Mutex::new(tp_info),
+            tp_info,
             errors: HashMap::new(),
         })
     }
 
     fn update_tp_info(&mut self) -> Result<(), String> {
-        let tp_info = Self::populate_initial_tp_info(self.config.clone().as_ref())?;
-        let mut locked = self.tp_info.lock().expect("Failed unlocking");
-        *locked = tp_info;
+        self.tp_info = Self::populate_initial_tp_info(self.config.clone().as_ref())?;
         Ok(())
     }
 
@@ -121,12 +135,21 @@ impl Stats {
         }
     }
 
+    fn get_status(&self) -> StatsStatus {
+        let dt: DateTime<Utc> = SystemTime::now().into();
+        StatsStatus {
+            updated_at: dt.to_rfc3339(),
+            tp_info: self.tp_info.clone(),
+            errors: self.errors.clone(),
+        }
+    }
+
     fn report_issue(&mut self, k: ReporterKey, r: ErrorReport) {
         self.errors.insert(
             k,
             ErrorEvent {
                 report: r,
-                time: Instant::now(),
+                time: SystemTime::now(),
             },
         );
     }

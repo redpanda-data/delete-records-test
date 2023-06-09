@@ -3,10 +3,12 @@ extern crate core;
 mod config;
 mod producer;
 mod stats;
+mod web;
 
 use crate::config::{CompressionType, Config, ConfigBuilder, DeleteOffsetPosition, Payload};
 use crate::producer::producers;
 use crate::stats::{monitor_water_marks, Stats, StatsHandle};
+use crate::web::server;
 use clap::Parser;
 use log::{debug, error, info, trace, warn};
 use rdkafka::consumer::Consumer;
@@ -177,6 +179,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.num_producers,
         Duration::from_millis(args.timeout_ms),
         cancel_token.clone(),
+    )));
+
+    info!("Starting webserver");
+    tasks.push(tokio::spawn(server(
+        cancel_token.clone(),
+        args.port,
+        stats_handle.clone(),
     )));
 
     info!("Waiting on exit...");
