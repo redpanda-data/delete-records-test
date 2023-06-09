@@ -2,11 +2,13 @@ extern crate core;
 
 mod config;
 mod producer;
+mod record_deleter;
 mod stats;
 mod web;
 
-use crate::config::{CompressionType, Config, ConfigBuilder, DeleteOffsetPosition, Payload};
+use crate::config::{CompressionType, Config, ConfigBuilder, DeleteRecordPosition, Payload};
 use crate::producer::producers;
+use crate::record_deleter::{record_deleter_timer_worker, record_deleter_worker};
 use crate::stats::{monitor_water_marks, Stats, StatsHandle};
 use crate::web::server;
 use clap::Parser;
@@ -16,6 +18,7 @@ use std::ops::RangeInclusive;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{num, process};
+use tokio::sync::mpsc;
 use tokio::{select, signal};
 use tokio_util::sync::CancellationToken;
 
@@ -46,10 +49,10 @@ struct Args {
     #[arg(long, help = "Range of keys", default_value_t = 1000)]
     keys: u64,
     // delete record settings
-    #[arg(long, help = "Position to delete offset", value_enum)]
-    delete_offset_position: DeleteOffsetPosition,
-    #[arg(long, help = "Frequency of running delete offset in seconds", value_parser = parse_duration)]
-    delete_offset_period_sec: Duration,
+    #[arg(long, help = "Position to delete record", value_enum)]
+    delete_record_position: DeleteRecordPosition,
+    #[arg(long, help = "Frequency of running delete record in seconds", value_parser = parse_duration)]
+    delete_record_period_sec: Duration,
     // producer
     #[arg(long, help = "Compression Type", value_enum)]
     compression_type: Option<CompressionType>,
@@ -166,6 +169,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut tasks = vec![];
 
+    let (record_deleter_tx, record_deleter_rx) = mpsc::channel(1);
+
     info!("Starting monitor water marks");
     tasks.push(tokio::spawn(monitor_water_marks(
         stats_handle.clone(),
@@ -182,11 +187,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         stats_handle.clone(),
     )));
 
+    info!("Starting record deleter worker");
+    tasks.push(tokio::spawn(record_deleter_worker(
+        config.clone(),
+        stats_handle.clone(),
+        cancel_token.clone(),
+        record_deleter_rx,
+    )));
+
+    info!("Starting record deleter timer");
+    tasks.push(tokio::spawn(record_deleter_timer_worker(
+        stats_handle.clone(),
+        args.delete_record_position,
+        args.delete_record_period_sec,
+        cancel_token.clone(),
+        record_deleter_tx.clone(),
+    )));
+
     info!("Starting webserver");
     tasks.push(tokio::spawn(server(
         cancel_token.clone(),
         args.port,
         stats_handle.clone(),
+        record_deleter_tx.clone(),
     )));
 
     info!("Waiting on exit...");

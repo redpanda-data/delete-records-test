@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::stats::ErrorReport::ProducerError;
+use crate::stats::ErrorReport::Producer;
 use crate::stats::StatsHandle;
 use governor::{Quota, RateLimiter};
 use log::{debug, error, info, warn};
@@ -158,7 +158,7 @@ async fn produce(
                         warn!("Error on producer {}, producing {} bytes, compressible={} : {}",
                         my_id, sz, payload.compressible, e);
                         let err_str = format!("{}", e);
-                        stats_handle.report_issue(format!("{}", my_id), ProducerError(err_str.clone()));
+                        stats_handle.report_issue(format!("{}", my_id), Producer(err_str.clone()));
                         errors.push(err_str);
                     }
                 }

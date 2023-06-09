@@ -1,0 +1,120 @@
+use crate::config::{Config, DeleteRecordPosition};
+use crate::stats::ErrorReport::DeleteRecord;
+use crate::stats::{ErrorReport, StatsHandle};
+use log::{debug, info, warn};
+use rdkafka::admin::{AdminClient, AdminOptions};
+use rdkafka::client::DefaultClientContext;
+use rdkafka::Offset::Offset;
+use rdkafka::TopicPartitionList;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::select;
+use tokio::sync::mpsc::{Receiver, Sender};
+use tokio_util::sync::CancellationToken;
+
+fn calc_record_to_delete(lwm: i64, hwm: i64, delete_record_position: DeleteRecordPosition) -> i64 {
+    match delete_record_position {
+        DeleteRecordPosition::All => hwm,
+        DeleteRecordPosition::Halfway => (hwm - lwm) / 2 + lwm,
+        DeleteRecordPosition::Single => lwm + 1,
+    }
+}
+
+async fn record_deleter(
+    admin_client: &AdminClient<DefaultClientContext>,
+    stats_handle: StatsHandle,
+    delete_record_position: DeleteRecordPosition,
+    topic: String,
+) {
+    info!(
+        "Starting record deletion at topic {} using strategy {}",
+        topic, delete_record_position
+    );
+    let current_tp_info = stats_handle.current_tp_info();
+
+    let mut tpl = TopicPartitionList::with_capacity(current_tp_info.len());
+
+    for (partition_id, tp_info) in current_tp_info.into_iter() {
+        let record = calc_record_to_delete(tp_info.lwm, tp_info.hwm, delete_record_position);
+        tpl.add_partition_offset(topic.as_str(), partition_id, Offset(record))
+            .expect("Failed to insert partition offset");
+        debug!("Delete record {} at {}/{}", record, topic, partition_id);
+    }
+
+    match admin_client
+        .delete_records(&tpl, &AdminOptions::new())
+        .await
+    {
+        Ok(results) => {
+            for res in results.into_iter().as_ref() {
+                if let Err((_, code)) = res {
+                    warn!("There was an issue deleting a record: {}", code);
+                    stats_handle.report_issue(
+                        String::from("Delete Record Result"),
+                        DeleteRecord(format!("{}", code)),
+                    )
+                }
+            }
+        }
+        Err(e) => {
+            warn!("There was an issue deleting a record: {}", e);
+            stats_handle.report_issue(
+                String::from("Delete Records"),
+                ErrorReport::DeleteRecord(format!("{}", e)),
+            )
+        }
+    }
+}
+
+pub async fn record_deleter_worker(
+    config: Arc<Config>,
+    stats_handle: StatsHandle,
+    cancel_token: CancellationToken,
+    mut trigger_record_delete: Receiver<DeleteRecordPosition>,
+) {
+    let mut running = true;
+
+    let admin_client = config.make_admin().expect("Failed to create admin client");
+
+    while running {
+        select! {
+            _ = cancel_token.cancelled() => {
+                warn!("Record deleter worker stopped");
+                running = false;
+            }
+            pos = trigger_record_delete.recv() => {
+                if let Some(pos) = pos {
+                    record_deleter(&admin_client,
+                        stats_handle.clone(),
+                        pos,
+                        config.base_config.topic.clone()).await
+                }
+
+            }
+        }
+    }
+}
+
+pub async fn record_deleter_timer_worker(
+    stats_handle: StatsHandle,
+    delete_record_position: DeleteRecordPosition,
+    delete_record_period: Duration,
+    cancel_token: CancellationToken,
+    trigger_record_delete: Sender<DeleteRecordPosition>,
+) {
+    let mut running = true;
+
+    while running {
+        select! {
+            _ = cancel_token.cancelled() => {
+                warn!("Offset delete timer stopped");
+                running = false;
+            }
+            _ = tokio::time::sleep(delete_record_period) => {
+                if let Err(e) = trigger_record_delete.send(delete_record_position).await {
+                    stats_handle.report_issue(String::from("record_deleter_timer_worker"), ErrorReport::Infrastructure(format!("{}", e)))
+                }
+            }
+        }
+    }
+}

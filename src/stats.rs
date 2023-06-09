@@ -15,22 +15,26 @@ pub type PartitionId = i32;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TPInfo {
-    partition: PartitionId,
-    lwm: i64,
-    hwm: i64,
+    pub partition: PartitionId,
+    pub lwm: i64,
+    pub hwm: i64,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
 pub enum ErrorReport {
-    ProducerError(String),
-    ConsumerError(String),
+    Infrastructure(String),
+    Producer(String),
+    Consumer(String),
+    DeleteRecord(String),
 }
 
 impl fmt::Display for ErrorReport {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            ErrorReport::ProducerError(m) => write!(f, "Producer error: {}", m),
-            ErrorReport::ConsumerError(m) => write!(f, "Consumer error: {}", m),
+            ErrorReport::Infrastructure(m) => write!(f, "Infrastructure error: {}", m),
+            ErrorReport::Producer(m) => write!(f, "Producer error: {}", m),
+            ErrorReport::Consumer(m) => write!(f, "Consumer error: {}", m),
+            ErrorReport::DeleteRecord(m) => write!(f, "Delete Record error: {}", m),
         }
     }
 }
@@ -59,6 +63,10 @@ impl StatsHandle {
             inner: i,
             start_time,
         }
+    }
+
+    pub fn current_tp_info(&self) -> TPInfoMap {
+        self.inner.lock().unwrap().current_tp_info()
     }
 
     pub fn get_status(&self) -> StatsStatus {
@@ -97,6 +105,10 @@ impl Stats {
             tp_info,
             errors: HashMap::new(),
         })
+    }
+
+    fn current_tp_info(&self) -> TPInfoMap {
+        self.tp_info.clone()
     }
 
     fn update_tp_info(&mut self) -> Result<(), String> {
@@ -170,7 +182,7 @@ pub async fn monitor_water_marks(
             }
             _ = tokio::time::sleep(interval) => {
                 if let Err(e) = stats_handle.update_tp_info() {
-                    stats_handle.report_issue(String::from("MonitorWaterMarks"), ErrorReport::ConsumerError(e))
+                    stats_handle.report_issue(String::from("MonitorWaterMarks"), ErrorReport::Consumer(e))
                 }
             }
         }

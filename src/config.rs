@@ -4,7 +4,9 @@ use rdkafka::client::DefaultClientContext;
 use rdkafka::error::KafkaResult;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
+use serde::Deserialize;
 use std::fmt;
+use std::fmt::Formatter;
 
 #[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord, ValueEnum)]
 pub enum CompressionType {
@@ -27,14 +29,23 @@ impl fmt::Display for CompressionType {
     }
 }
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, ValueEnum)]
-pub enum DeleteOffsetPosition {
+#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, ValueEnum, Deserialize, Debug)]
+pub enum DeleteRecordPosition {
     /// Delete all offsets
     All,
     /// Delete halfway between HWM and LWM
     Halfway,
     /// Delete one after LWM (single offset deletion)
     Single,
+}
+impl fmt::Display for DeleteRecordPosition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DeleteRecordPosition::All => write!(f, "All"),
+            DeleteRecordPosition::Halfway => write!(f, "Halfway"),
+            DeleteRecordPosition::Single => write!(f, "Single"),
+        }
+    }
 }
 
 pub struct BaseConfig {
