@@ -165,10 +165,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     info!("Waiting on exit...");
 
-    select! {
-        _ = signal::ctrl_c() => {
-            warn!("Received ctrl_c!");
-            cancel_token.cancel();
+    let mut tasks_joined = false;
+
+    let mut join_handle = futures::future::join_all(tasks);
+
+    while !tasks_joined {
+        select! {
+            _ = signal::ctrl_c() => {
+                warn!("Received ctrl_c!");
+                cancel_token.cancel();
+            }
+            _ = &mut join_handle => {
+                info!("All tasks completed");
+                tasks_joined = true;
+            }
         }
     }
 

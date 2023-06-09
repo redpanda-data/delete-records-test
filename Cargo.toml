@@ -14,6 +14,7 @@ categories = ["command-line-utilities", "asynchronous"]
 [dependencies]
 clap = {version = "4.3", features = ["default", "derive"] }
 env_logger = "0.10.0"
+futures = "0.3.28"
 governor = "0.5.1"
 log = "0.4"
 once_cell = "1.18"
