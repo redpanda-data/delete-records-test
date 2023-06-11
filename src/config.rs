@@ -1,12 +1,14 @@
 use clap::ValueEnum;
 use log::info;
 use rdkafka::client::DefaultClientContext;
+use rdkafka::consumer::StreamConsumer;
 use rdkafka::error::KafkaResult;
 use rdkafka::producer::FutureProducer;
 use rdkafka::ClientConfig;
 use serde::Deserialize;
 use std::fmt;
 use std::fmt::Formatter;
+use uuid::Uuid;
 
 #[derive(Copy, Clone, PartialOrd, PartialEq, Eq, Ord, ValueEnum)]
 pub enum CompressionType {
@@ -75,8 +77,9 @@ pub struct ProducerConfig {
 
 pub struct ConsumerConfig {
     consumer_properties: Vec<String>,
-    pub consumer_throughput_mbps: Option<usize>,
+    pub consumer_throughput_mbps: Option<u32>,
     pub rand: bool,
+    consumer_group_name: String,
 }
 
 pub struct ConfigBuilder {
@@ -158,13 +161,15 @@ impl ConfigBuilder {
     pub fn set_consumer_config(
         mut self,
         consumer_properties: Vec<String>,
-        consumer_throughput_mbps: Option<usize>,
+        consumer_throughput_mbps: Option<u32>,
         rand: bool,
+        consume_group_name: Option<String>,
     ) -> Self {
         self.consumer_config = Some(ConsumerConfig {
             consumer_properties,
             consumer_throughput_mbps,
             rand,
+            consumer_group_name: consume_group_name.unwrap_or(Uuid::new_v4().to_string()),
         });
         self
     }
@@ -210,6 +215,26 @@ impl Config {
         }
         if let Some(compression_type) = self.producer_config.compression_type {
             cfg.set("compression.type", format!("{}", compression_type));
+        }
+
+        cfg.create()
+    }
+
+    pub fn make_stream_consumer(&self) -> KafkaResult<StreamConsumer> {
+        let mut cfg = self.base_config.rdkafka_config.clone();
+        cfg.set(
+            "group.id",
+            self.consumer_config.consumer_group_name.as_str(),
+        )
+        .set("enable.partition.eof", "false")
+        .set("socket.timeout.ms", "180000")
+        .set("enable.auto.commit", "true")
+        .set("auto.offset.reset", "earliest");
+
+        let kv_pairs = Self::split_properties(&self.consumer_config.consumer_properties);
+
+        for (k, v) in kv_pairs {
+            cfg.set(k, v);
         }
 
         cfg.create()

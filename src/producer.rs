@@ -51,7 +51,7 @@ pub async fn producers(
         info!("Joining producer {}...", i);
         match t.await.unwrap() {
             Err(e) => {
-                error!("Error during construction or producer {}: {}", i, e)
+                error!("Error during construction of producer {}: {}", i, e)
             }
             Ok(producer_stats) => {
                 if !producer_stats.errors.is_empty() {

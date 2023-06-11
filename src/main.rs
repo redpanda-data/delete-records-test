@@ -1,12 +1,14 @@
 extern crate core;
 
 mod config;
+mod consumer;
 mod producer;
 mod record_deleter;
 mod stats;
 mod web;
 
 use crate::config::{CompressionType, Config, ConfigBuilder, DeleteRecordPosition, Payload};
+use crate::consumer::consumers;
 use crate::producer::producers;
 use crate::record_deleter::{record_deleter_timer_worker, record_deleter_worker};
 use crate::stats::{monitor_water_marks, Stats, StatsHandle};
@@ -68,11 +70,16 @@ struct Args {
     #[arg(long, help = "Consumer properties (as key=value for librdkafka)")]
     consumer_properties: Vec<String>,
     #[arg(long, help = "Consume throughput in MBps")]
-    consume_throughput_mbps: Option<usize>,
+    consume_throughput_mbps: Option<u32>,
     #[arg(long, help = "Number of consumers", default_value_t = 1)]
     num_consumers: usize,
     #[arg(long, help = "Random consumption rather than sequential")]
     rand: bool,
+    #[arg(
+        long,
+        help = "Name of the consumer group, if not povided, random name generated"
+    )]
+    group_name: Option<String>,
 }
 
 const PORT_RANGE: RangeInclusive<usize> = 1..=65535;
@@ -154,6 +161,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.consumer_properties,
         args.consume_throughput_mbps,
         args.rand,
+        args.group_name,
     );
 
     let config = Arc::new(config_builder.build());
@@ -183,6 +191,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.clone(),
         args.num_producers,
         Duration::from_millis(args.timeout_ms),
+        cancel_token.clone(),
+        stats_handle.clone(),
+    )));
+
+    info!("Starting consumers");
+    tasks.push(tokio::spawn(consumers(
+        config.clone(),
+        args.num_consumers,
         cancel_token.clone(),
         stats_handle.clone(),
     )));
