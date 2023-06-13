@@ -1,6 +1,6 @@
 use crate::config::{Config, DeleteRecordPosition};
 use crate::stats::ErrorReport::DeleteRecord;
-use crate::stats::{ErrorReport, StatsHandle};
+use crate::stats::{ErrorReport, PartitionOffsetMap, StatsHandle, TopicPartitionOffsetMap};
 use log::{debug, info, warn};
 use rdkafka::admin::{AdminClient, AdminOptions};
 use rdkafka::client::DefaultClientContext;
@@ -31,13 +31,22 @@ async fn record_deleter(
         topic, delete_record_position
     );
     let current_tp_info = stats_handle.current_tp_info();
+    let mut removed_offsets_map = TopicPartitionOffsetMap::with_capacity(1);
 
     let mut tpl = TopicPartitionList::with_capacity(current_tp_info.len());
 
-    for (partition_id, tp_info) in current_tp_info.into_iter() {
+    let partition_info = current_tp_info.get(&topic).unwrap();
+    removed_offsets_map.insert(
+        topic.clone(),
+        PartitionOffsetMap::with_capacity(partition_info.len()),
+    );
+    let offset_map = removed_offsets_map.get_mut(&topic).unwrap();
+
+    for (partition_id, tp_info) in partition_info.iter() {
         let record = calc_record_to_delete(tp_info.lwm, tp_info.hwm, delete_record_position);
-        tpl.add_partition_offset(topic.as_str(), partition_id, Offset(record))
+        tpl.add_partition_offset(topic.as_str(), *partition_id, Offset(record))
             .expect("Failed to insert partition offset");
+        offset_map.insert(*partition_id, record);
         debug!("Delete record {} at {}/{}", record, topic, partition_id);
     }
 
@@ -46,14 +55,20 @@ async fn record_deleter(
         .await
     {
         Ok(results) => {
+            let mut errors = false;
             for res in results.into_iter().as_ref() {
                 if let Err((_, code)) = res {
+                    errors = true;
                     warn!("There was an issue deleting a record: {}", code);
                     stats_handle.report_issue(
                         String::from("Delete Record Result"),
                         DeleteRecord(format!("{}", code)),
                     )
                 }
+            }
+
+            if !errors {
+                stats_handle.report_deleted_records(removed_offsets_map);
             }
         }
         Err(e) => {

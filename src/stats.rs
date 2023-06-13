@@ -12,9 +12,11 @@ use tokio::select;
 use tokio_util::sync::CancellationToken;
 
 pub type PartitionId = i32;
+pub type Offset = i64;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TPInfo {
+    pub topic: String,
     pub partition: PartitionId,
     pub lwm: i64,
     pub hwm: i64,
@@ -48,7 +50,10 @@ struct ErrorEvent {
 pub type ReporterKey = String;
 
 type ErrorMap = HashMap<ReporterKey, ErrorEvent>;
-type TPInfoMap = HashMap<PartitionId, TPInfo>;
+type PartitionInfoMap = HashMap<PartitionId, TPInfo>;
+type TPInfoMap = HashMap<String, PartitionInfoMap>;
+pub type PartitionOffsetMap = HashMap<PartitionId, Offset>;
+pub type TopicPartitionOffsetMap = HashMap<String, PartitionOffsetMap>;
 
 #[derive(Clone)]
 pub struct StatsHandle {
@@ -77,6 +82,10 @@ impl StatsHandle {
         self.inner.lock().unwrap().update_tp_info()
     }
 
+    pub fn report_deleted_records(&self, offsets: TopicPartitionOffsetMap) {
+        self.inner.lock().unwrap().report_deleted_records(offsets);
+    }
+
     pub fn report_issue(&self, k: ReporterKey, r: ErrorReport) {
         self.inner.lock().unwrap().report_issue(k, r)
     }
@@ -87,6 +96,7 @@ pub struct StatsStatus {
     updated_at: String,
     tp_info: TPInfoMap,
     errors: ErrorMap,
+    last_removed_offsets: Option<TopicPartitionOffsetMap>,
 }
 
 pub struct Stats {
@@ -94,6 +104,7 @@ pub struct Stats {
     start_time: Instant,
     tp_info: TPInfoMap,
     errors: ErrorMap,
+    last_removed_offsets: Option<TopicPartitionOffsetMap>,
 }
 
 impl Stats {
@@ -104,6 +115,7 @@ impl Stats {
             start_time: Instant::now(),
             tp_info,
             errors: HashMap::new(),
+            last_removed_offsets: None,
         })
     }
 
@@ -127,7 +139,13 @@ impl Stats {
             Err(format!("Topic '{}' does not exist", topic))
         } else {
             let partitions = metadata.topics()[0].partitions();
-            let mut tp_info = TPInfoMap::with_capacity(partitions.len());
+            let mut topic_map = TPInfoMap::with_capacity(1);
+
+            topic_map.insert(
+                config.base_config.topic.clone(),
+                PartitionInfoMap::with_capacity(partitions.len()),
+            );
+            let tp_info = topic_map.get_mut(topic).unwrap();
             for p in partitions {
                 trace!("Fetching LWM/HWM for {}/{}", topic, p.id());
                 let (lwm, hwm) = base_consumer
@@ -137,13 +155,14 @@ impl Stats {
                 tp_info.insert(
                     p.id(),
                     TPInfo {
+                        topic: config.base_config.topic.clone(),
                         partition: p.id(),
                         lwm,
                         hwm,
                     },
                 );
             }
-            Ok(tp_info)
+            Ok(topic_map)
         }
     }
 
@@ -153,7 +172,12 @@ impl Stats {
             updated_at: dt.to_rfc3339(),
             tp_info: self.tp_info.clone(),
             errors: self.errors.clone(),
+            last_removed_offsets: self.last_removed_offsets.clone(),
         }
+    }
+
+    fn report_deleted_records(&mut self, offset_map: TopicPartitionOffsetMap) {
+        self.last_removed_offsets.replace(offset_map);
     }
 
     fn report_issue(&mut self, k: ReporterKey, r: ErrorReport) {
