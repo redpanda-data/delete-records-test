@@ -5,6 +5,7 @@ use governor::{Quota, RateLimiter};
 use log::{debug, error, info, warn};
 use rdkafka::consumer::Consumer;
 use rdkafka::error::KafkaResult;
+use rdkafka::Message;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::select;
@@ -118,6 +119,9 @@ async fn consumer(
                     Ok(msg) => {
                         if let Some(msg) = msg {
                             total_size += msg.payload_len();
+                            if msg.offset() % 1000 == 0 {
+                                debug!("Consumer {} read {}/{}:{}", my_id, msg.topic(), msg.partition(), msg.offset());
+                            }
                             if let Some(rl) = &mut rate_limit {
                                 if rl.until_n_ready((msg.payload_len() as u32).try_into().unwrap())
                                 .await.is_err() {

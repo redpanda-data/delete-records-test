@@ -2,7 +2,7 @@ use crate::config::Config;
 use crate::stats::ErrorReport::Producer;
 use crate::stats::StatsHandle;
 use governor::{Quota, RateLimiter};
-use log::{debug, error, info, warn};
+use log::{debug, error, info, trace, warn};
 use once_cell::sync::OnceCell;
 use rand::RngCore;
 use rdkafka::error::KafkaResult;
@@ -145,7 +145,7 @@ async fn produce(
                 .payload(payload_slice),
             timeout,
         );
-        debug!("Producer {} waiting", my_id);
+        trace!("Producer {} waiting", my_id);
         select! {
             _ = cancel_token.cancelled() => {
                 info!("Producer {} cancelled", my_id);
