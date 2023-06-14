@@ -19,22 +19,29 @@ Any errors will be reported.
 This application will also start consumers that will either function randomly or sequentially and will be notified
 of what the start offset the application thinks the partitions currently are at.
 
-## CLI
-
-The following table defines the CLI arguments for the application:
-
-| Argument                           | Description                                         |
-|------------------------------------|-----------------------------------------------------|
-| `-b/--broker <BROKERS>`            | The brokers to use                                  |
-| `-t/--topic <TOPIC_NAME>`          | The name of the _existing_ topic to use             |
-| `-p/--port <HTTP PORT>`            | Port to use for API                                 |
-| `--compressible-payload`           | Generate compressible payload                       |
-| `--compression-type <TYPE>`        | Compression type                                    |
-| `--produce-throughput-bps <BPS>`   | Throughput for production                           |
-| `--consume-throughput-mbps <MBPS>` | Throughput for consumer (for each consumer)         |
-| `--num-consumers <NUM>`            | Number of consumers                                 |
-| `--username <USERNAME>`            | Username                                            |
-| `--password <PASSWORD>`            | Password                                            |
-| `--sasl_mechanism <SASL>`          | Mechanism to use (`SCRAM-SHA256` or `SCRAM-SHA512`) |
-
 ## HTTP API
+
+### `/status`
+
+A `GET` to the `/status` endpoint will return:
+
+* LWM and HWM information for each partition
+* The last set of records deleted
+* Any errors
+
+### '/record'
+
+A `DELETE` to the `/record` endpoint will immediately initiate a delete records request.  This endpoint requires
+a single parameter `position` which indicates which position to start record deletion for each topic.  The value values
+are:
+* `All` - Delete all records
+* `Halfway` - delete all records before the halfway point between the high and low watermarks
+* `Single` - Delete one record at the low watermark
+
+Example:
+
+`curl -X DELETE localhost:7778/record?position=All`
+
+### `/service`
+
+A `DELETE` to the `/service` endpoint will shut down the application
