@@ -29,7 +29,7 @@ A `GET` to the `/status` endpoint will return:
 * The last set of records deleted
 * Any errors
 
-### '/record'
+### `/record`
 
 A `DELETE` to the `/record` endpoint will immediately initiate a delete records request.  This endpoint requires
 a single parameter `position` which indicates which position to start record deletion for each topic.  The value values
