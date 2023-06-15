@@ -1,22 +1,81 @@
-use crate::config::{Config, DeleteRecordPosition};
+use crate::config::{Config, DeleteRecordPositionConfig};
 use crate::stats::ErrorReport::DeleteRecord;
-use crate::stats::{ErrorReport, PartitionOffsetMap, StatsHandle, TopicPartitionOffsetMap};
+use crate::stats::{
+    ErrorReport, Offset, PartitionId, PartitionOffsetMap, StatsHandle, TopicPartitionOffsetMap,
+};
 use log::{debug, info, warn};
 use rdkafka::admin::{AdminClient, AdminOptions};
 use rdkafka::client::DefaultClientContext;
-use rdkafka::Offset::Offset;
 use rdkafka::TopicPartitionList;
+use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::fmt::Formatter;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::select;
 use tokio::sync::mpsc::{Receiver, Sender};
 use tokio_util::sync::CancellationToken;
 
-fn calc_record_to_delete(lwm: i64, hwm: i64, delete_record_position: DeleteRecordPosition) -> i64 {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DeleteRecordPosition {
+    /// Delete all offsets
+    All,
+    /// Delete halfway between HWM and LWM
+    Halfway,
+    /// Delete one after LWM (single offset deletion)
+    Single,
+    /// Specify partition and offset for deletion
+    Specific(Vec<(PartitionId, Offset)>),
+}
+
+impl From<DeleteRecordPositionConfig> for DeleteRecordPosition {
+    fn from(value: DeleteRecordPositionConfig) -> Self {
+        match value {
+            DeleteRecordPositionConfig::All => Self::All,
+            DeleteRecordPositionConfig::Halfway => Self::Halfway,
+            DeleteRecordPositionConfig::Single => Self::Single,
+        }
+    }
+}
+
+impl fmt::Display for DeleteRecordPosition {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DeleteRecordPosition::All => write!(f, "All"),
+            DeleteRecordPosition::Halfway => write!(f, "Halfway"),
+            DeleteRecordPosition::Single => write!(f, "Single"),
+            DeleteRecordPosition::Specific(val) => {
+                write!(f, "Specific: ")?;
+                for (p, o) in val {
+                    write!(f, "({}, {})", *p, *o)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+fn calc_record_to_delete(
+    partition_id: PartitionId,
+    lwm: i64,
+    hwm: i64,
+    delete_record_position: DeleteRecordPosition,
+) -> Option<i64> {
     match delete_record_position {
-        DeleteRecordPosition::All => hwm,
-        DeleteRecordPosition::Halfway => (hwm - lwm) / 2 + lwm,
-        DeleteRecordPosition::Single => lwm + 1,
+        DeleteRecordPosition::All => Some(hwm),
+        DeleteRecordPosition::Halfway => Some((hwm - lwm) / 2 + lwm),
+        DeleteRecordPosition::Single => Some(lwm + 1),
+        DeleteRecordPosition::Specific(e) => {
+            let res: Vec<_> = e
+                .into_iter()
+                .filter(|(part_id, _)| partition_id == *part_id)
+                .collect();
+            if res.is_empty() {
+                None
+            } else {
+                Some(res[0].1)
+            }
+        }
     }
 }
 
@@ -43,11 +102,23 @@ async fn record_deleter(
     let offset_map = removed_offsets_map.get_mut(&topic).unwrap();
 
     for (partition_id, tp_info) in partition_info.iter() {
-        let record = calc_record_to_delete(tp_info.lwm, tp_info.hwm, delete_record_position);
-        tpl.add_partition_offset(topic.as_str(), *partition_id, Offset(record))
+        if let Some(record) = calc_record_to_delete(
+            *partition_id,
+            tp_info.lwm,
+            tp_info.hwm,
+            delete_record_position.clone(),
+        ) {
+            tpl.add_partition_offset(
+                topic.as_str(),
+                *partition_id,
+                rdkafka::Offset::Offset(record),
+            )
             .expect("Failed to insert partition offset");
-        offset_map.insert(*partition_id, record);
-        debug!("Delete record {} at {}/{}", record, topic, partition_id);
+            offset_map.insert(*partition_id, record);
+            debug!("Delete record {} at {}/{}", record, topic, partition_id);
+        } else {
+            debug!("Skipping {}/{}", topic, partition_id);
+        }
     }
 
     match admin_client
@@ -126,7 +197,7 @@ pub async fn record_deleter_timer_worker(
                 running = false;
             }
             _ = tokio::time::sleep(delete_record_period) => {
-                if let Err(e) = trigger_record_delete.send(delete_record_position).await {
+                if let Err(e) = trigger_record_delete.send(delete_record_position.clone()).await {
                     stats_handle.report_issue(String::from("record_deleter_timer_worker"), ErrorReport::Infrastructure(format!("{}", e)))
                 }
             }

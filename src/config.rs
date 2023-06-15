@@ -31,8 +31,8 @@ impl fmt::Display for CompressionType {
     }
 }
 
-#[derive(Copy, Clone, PartialOrd, PartialEq, Ord, Eq, ValueEnum, Deserialize, Debug)]
-pub enum DeleteRecordPosition {
+#[derive(Clone, PartialOrd, PartialEq, Ord, Eq, ValueEnum, Deserialize, Debug)]
+pub enum DeleteRecordPositionConfig {
     /// Delete all offsets
     All,
     /// Delete halfway between HWM and LWM
@@ -40,12 +40,12 @@ pub enum DeleteRecordPosition {
     /// Delete one after LWM (single offset deletion)
     Single,
 }
-impl fmt::Display for DeleteRecordPosition {
+impl fmt::Display for DeleteRecordPositionConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DeleteRecordPosition::All => write!(f, "All"),
-            DeleteRecordPosition::Halfway => write!(f, "Halfway"),
-            DeleteRecordPosition::Single => write!(f, "Single"),
+            DeleteRecordPositionConfig::All => write!(f, "All"),
+            DeleteRecordPositionConfig::Halfway => write!(f, "Halfway"),
+            DeleteRecordPositionConfig::Single => write!(f, "Single"),
         }
     }
 }

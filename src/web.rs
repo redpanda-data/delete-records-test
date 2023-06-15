@@ -1,10 +1,11 @@
-use crate::config::DeleteRecordPosition;
-use crate::stats::{StatsHandle, StatsStatus};
+use crate::record_deleter::DeleteRecordPosition;
+use crate::stats::{Offset, PartitionId, StatsHandle, StatsStatus};
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::{routing, Json, Router};
 use log::{error, info, warn};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::mpsc::Sender;
 use tokio::sync::Mutex;
@@ -20,21 +21,60 @@ async fn delete_service(State(server_state): State<ServerStateType>) {
     server_state.lock().await.cancel_token.cancel()
 }
 
+#[derive(Copy, Clone, Deserialize, Serialize)]
+enum DeleteRecordPositionWeb {
+    /// Delete all offsets
+    All,
+    /// Delete halfway between HWM and LWM
+    Halfway,
+    /// Delete one after LWM (single offset deletion)
+    Single,
+    /// Specify partition and offset for deletion
+    Specific,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct RecordDelete {
+    partition: PartitionId,
+    offset: Offset,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+struct Records {
+    records: Vec<RecordDelete>,
+}
+
 #[derive(Deserialize)]
 struct RecordPosition {
-    position: DeleteRecordPosition,
+    position: DeleteRecordPositionWeb,
 }
 
 async fn delete_record(
     State(server_state): State<ServerStateType>,
     Query(params): Query<RecordPosition>,
+    payload: Result<Json<Records>, JsonRejection>,
 ) -> Result<(), StatusCode> {
     let server_state = server_state.lock().await;
-    match server_state
-        .trigger_record_delete
-        .send(params.position)
-        .await
-    {
+    let position = match params.position {
+        DeleteRecordPositionWeb::All => Ok(DeleteRecordPosition::All),
+        DeleteRecordPositionWeb::Halfway => Ok(DeleteRecordPosition::Halfway),
+        DeleteRecordPositionWeb::Single => Ok(DeleteRecordPosition::Single),
+        DeleteRecordPositionWeb::Specific => match payload {
+            Ok(payload) => {
+                let res: Vec<_> = payload
+                    .records
+                    .iter()
+                    .map(|r| (r.partition, r.offset))
+                    .collect();
+                Ok(DeleteRecordPosition::Specific(res))
+            }
+            Err(e) => {
+                error!("Failed to extract json: {}", e);
+                Err(StatusCode::from_u16(400).unwrap())
+            }
+        },
+    }?;
+    match server_state.trigger_record_delete.send(position).await {
         Ok(_) => Ok(()),
         Err(e) => {
             error!("Error during sending of trigger: {}", e);

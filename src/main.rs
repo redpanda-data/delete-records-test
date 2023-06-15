@@ -7,7 +7,7 @@ mod record_deleter;
 mod stats;
 mod web;
 
-use crate::config::{CompressionType, Config, ConfigBuilder, DeleteRecordPosition, Payload};
+use crate::config::{CompressionType, Config, ConfigBuilder, DeleteRecordPositionConfig, Payload};
 use crate::consumer::consumers;
 use crate::producer::producers;
 use crate::record_deleter::{record_deleter_timer_worker, record_deleter_worker};
@@ -52,7 +52,7 @@ struct Args {
     keys: u64,
     // delete record settings
     #[arg(long, help = "Position to delete record", value_enum)]
-    delete_record_position: DeleteRecordPosition,
+    delete_record_position: DeleteRecordPositionConfig,
     #[arg(long, help = "Frequency of running delete record in seconds", value_parser = parse_duration)]
     delete_record_period_sec: Duration,
     // producer
@@ -214,7 +214,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Starting record deleter timer");
     tasks.push(tokio::spawn(record_deleter_timer_worker(
         stats_handle.clone(),
-        args.delete_record_position,
+        args.delete_record_position.into(),
         args.delete_record_period_sec,
         cancel_token.clone(),
         record_deleter_tx.clone(),

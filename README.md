@@ -9,15 +9,15 @@ for the Redpanda LRC test system.
 This application will start producing records to a Kafka compatible endpoint at a desired throughput.  At intervals
 defined by the settings, or through an API call, this test will invoke the DeleteRecords API call at a specific offset.
 
-NOTE: Only one DeleteRecords request will be handled, all others will be rejected.
+NOTE: Only one DeleteRecords request will be handled.
 
 The offset that is the deletion point can be set directly (e.g. given a specific offset within a partition) or
 relative to the last committed offset and the first committed offset.
 
 Any errors will be reported.
 
-This application will also start consumers that will either function randomly or sequentially and will be notified
-of what the start offset the application thinks the partitions currently are at.
+This application will also start consumers that will either function randomly (not yet done) or sequentially and will
+be notified of what the start offset the application thinks the partitions currently are at.
 
 ## HTTP API
 
@@ -37,10 +37,30 @@ are:
 * `All` - Delete all records
 * `Halfway` - delete all records before the halfway point between the high and low watermarks
 * `Single` - Delete one record at the low watermark
+* `Specific` - Delete specific offsets on specific partitions.  Must provide a JSON schema such as:
+
+```json
+{
+  "records": [
+    {
+      "partition": 0,
+      "offset": 1
+    },
+    {
+      "partition": 1,
+      "offset": 3
+    }
+  ]
+}
+```
 
 Example:
 
 `curl -X DELETE localhost:7778/record?position=All`
+
+or
+
+`curl -X DELETE localhost:7778/record?position=Specific -d '{"records": [{"partition": 0, "offset": 1},{"partition": 1, "offset": 3}]}'`
 
 ### `/service`
 
