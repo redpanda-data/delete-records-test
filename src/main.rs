@@ -52,9 +52,14 @@ struct Args {
     keys: u64,
     // delete record settings
     #[arg(long, help = "Position to delete record", value_enum)]
-    delete_record_position: DeleteRecordPositionConfig,
-    #[arg(long, help = "Frequency of running delete record in seconds", value_parser = parse_duration)]
-    delete_record_period_sec: Duration,
+    delete_record_position: Option<DeleteRecordPositionConfig>,
+    #[arg(
+        long,
+        help = "Frequency of running delete record in seconds",
+        value_parser = parse_duration,
+        requires("delete_record_position")
+    )]
+    delete_record_period_sec: Option<Duration>,
     // producer
     #[arg(long, help = "Compression Type", value_enum)]
     compression_type: Option<CompressionType>,
@@ -211,14 +216,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         record_deleter_rx,
     )));
 
-    info!("Starting record deleter timer");
-    tasks.push(tokio::spawn(record_deleter_timer_worker(
-        stats_handle.clone(),
-        args.delete_record_position.into(),
-        args.delete_record_period_sec,
-        cancel_token.clone(),
-        record_deleter_tx.clone(),
-    )));
+    if let Some(delete_record_period_sec) = args.delete_record_period_sec {
+        info!("Starting record deleter timer");
+        tasks.push(tokio::spawn(record_deleter_timer_worker(
+            stats_handle.clone(),
+            args.delete_record_position.unwrap().into(),
+            delete_record_period_sec,
+            cancel_token.clone(),
+            record_deleter_tx.clone(),
+        )));
+    } else {
+        info!("Not using the delete record timer");
+    }
 
     info!("Starting webserver");
     tasks.push(tokio::spawn(server(
