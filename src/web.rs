@@ -22,6 +22,7 @@ async fn delete_service(State(server_state): State<ServerStateType>) {
 }
 
 #[derive(Copy, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
 enum DeleteRecordPositionWeb {
     /// Delete all offsets
     All,

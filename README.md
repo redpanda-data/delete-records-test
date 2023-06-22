@@ -56,11 +56,11 @@ are:
 
 Example:
 
-`curl -X DELETE localhost:7778/record?position=All`
+`curl -X DELETE localhost:7778/record?position=all`
 
 or
 
-`curl -X DELETE localhost:7778/record?position=Specific -d '{"records": [{"partition": 0, "offset": 1},{"partition": 1, "offset": 3}]}'`
+`curl -X DELETE localhost:7778/record?position=specific -d '{"records": [{"partition": 0, "offset": 1},{"partition": 1, "offset": 3}]}'`
 
 ### `/service`
 
