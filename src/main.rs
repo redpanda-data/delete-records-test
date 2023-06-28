@@ -78,11 +78,11 @@ struct Args {
     consume_throughput_mbps: Option<u32>,
     #[arg(long, help = "Number of consumers", default_value_t = 1)]
     num_consumers: usize,
-    #[arg(long, help = "Random consumption rather than sequential")]
+    #[arg(long, help = "Random consumption in addition to sequential")]
     rand: bool,
     #[arg(
         long,
-        help = "Name of the consumer group, if not povided, random name generated"
+        help = "Name of the consumer group, if not provided, random name generated"
     )]
     group_name: Option<String>,
 }
@@ -206,6 +206,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.num_consumers,
         cancel_token.clone(),
         stats_handle.clone(),
+        args.rand,
     )));
 
     info!("Starting record deleter worker");

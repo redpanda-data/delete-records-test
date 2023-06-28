@@ -195,7 +195,11 @@ impl Config {
     }
 
     pub fn make_base_consumer(&self) -> KafkaResult<rdkafka::consumer::BaseConsumer> {
-        self.base_config.rdkafka_config.create()
+        let mut cfg = self.base_config.rdkafka_config.clone();
+        cfg.set("enable.partition.eof", "false")
+            .set("socket.timeout.ms", "180000");
+
+        cfg.create()
     }
 
     fn split_properties(properties: &[String]) -> Vec<(String, String)> {
@@ -218,6 +222,14 @@ impl Config {
         }
 
         cfg.create()
+    }
+
+    pub fn make_random_consumer(&self) -> KafkaResult<StreamConsumer> {
+        let mut cfg = self.base_config.rdkafka_config.clone();
+        cfg.set("group.id", Uuid::new_v4().to_string().as_str())
+            .set("enable.auto.commit", "false")
+            //.set("auto.offset.reset", "none")
+            .create()
     }
 
     pub fn make_stream_consumer(&self) -> KafkaResult<StreamConsumer> {

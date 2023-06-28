@@ -89,6 +89,10 @@ impl StatsHandle {
     pub fn report_issue(&self, k: ReporterKey, r: ErrorReport) {
         self.inner.lock().unwrap().report_issue(k, r)
     }
+
+    pub fn last_removed_offsets(&self) -> Option<TopicPartitionOffsetMap> {
+        self.inner.lock().unwrap().last_removed_offsets()
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -188,6 +192,10 @@ impl Stats {
                 time: SystemTime::now(),
             },
         );
+    }
+
+    fn last_removed_offsets(&self) -> Option<TopicPartitionOffsetMap> {
+        self.last_removed_offsets.clone()
     }
 }
 

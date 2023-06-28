@@ -16,6 +16,9 @@ relative to the last committed offset and the first committed offset.
 
 Any errors will be reported.
 
+This application will also start sequential consumers and, if requested, consumers that will consume from random offsets
+within a topic/partitions.  The random consumer(s) will attempt consumption 
+
 This application will also start consumers that will either function randomly (not yet done) or sequentially and will
 be notified of what the start offset the application thinks the partitions currently are at.
 
